@@ -1,0 +1,40 @@
+[
+  {
+    "step_title": "设置 SynoFind",
+    "invalid_next_disabled": true,
+    "items": [
+      { "desc": "SynoFind 是个人文件搜索服务。初次安装请设置独立密码；重新安装保留的数据时，会继续使用原密码和端口。安装后请为套件账户授予 Wonvy 只读权限。" },
+      {
+        "type": "password",
+        "desc": "网页登录密码（不使用 DSM 密码）",
+        "subitems": [
+          {
+            "key": "wizard_password",
+            "desc": "至少 12 个字符，UTF-8 不超过 72 字节",
+            "validator": {
+              "allowBlank": false,
+              "minLength": 12,
+              "maxLength": 72,
+              "fn": "{var v=String(arguments[0]); return Array.from(v).length>=12 && unescape(encodeURIComponent(v)).length<=72 && !/[\\r\\n]/.test(v) ? true : '至少 12 个字符，UTF-8 编码不得超过 72 字节，不含换行';}"
+            }
+          }
+        ]
+      },
+      {
+        "type": "textfield",
+        "desc": "局域网服务端口",
+        "subitems": [
+          {
+            "key": "wizard_port",
+            "desc": "默认 8787",
+            "defaultValue": "8787",
+            "validator": {
+              "allowBlank": false,
+              "fn": "{var v=String(arguments[0]); var p=Number(v); return /^[0-9]+$/.test(v) && p>=1024 && p<=65535 ? true : '请输入 1024–65535 之间的端口';}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

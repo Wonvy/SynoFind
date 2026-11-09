@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SynoFind</title><script src="port.js"></script></head>
+<body style="font:16px system-ui;padding:48px;color:#183152"><p>正在打开 SynoFind…</p><p><a id="open" href="#">点击打开</a></p><script>
+(function () {
+  var p = Number(window.synofindPort);
+  if (!Number.isInteger(p) || p < 1024 || p > 65535) { document.body.textContent = '端口配置无效，请查看安装说明。'; return; }
+  var host = window.location.hostname;
+  if (host.indexOf(':') >= 0 && host.charAt(0) !== '[') host = '[' + host + ']';
+  var url = 'http://' + host + ':' + p + '/';
+  document.getElementById('open').href = url;
+  window.location.replace(url);
+}());
+</script></body></html>

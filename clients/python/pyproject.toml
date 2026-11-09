@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synofind-dsm"
+version = "0.5.0"
+description = "Windows local web app and read-only client for the official Synology File Station API"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Filesystems",
+]
+
+[project.scripts]
+synofind-dsm = "synofind_dsm.cli:main"
+synofind-desktop = "synofind_dsm.desktop:main"
+
+[tool.setuptools.package-data]
+synofind_dsm = ["desktop_web/*.html", "desktop_web/*.js", "desktop_web/*.css", "desktop_web/vendor/*", "desktop_web/vendor/cmaps/*", "desktop_web/vendor/standard_fonts/*", "desktop_web/vendor/wasm/*", "desktop_web/vendor/iccs/*"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["synofind_dsm*"]
+exclude = ["tests*", "examples*"]

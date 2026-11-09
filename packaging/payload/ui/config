@@ -1,0 +1,12 @@
+{
+  ".url": {
+    "com.synofind.web": {
+      "type": "url",
+      "icon": "images/icon_{0}.png",
+      "title": "SynoFind",
+      "desc": "文件搜索与 API",
+      "url": "/webman/3rdparty/synofind/index.html",
+      "allUsers": false
+    }
+  }
+}

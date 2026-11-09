@@ -1,0 +1,3 @@
+#!/bin/sh
+# DSM removes its registered service and target payload. Retain appdata by design.
+exit 0

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# postinst also runs during upgrade and restores the launcher using saved config.
+data=${SYNOPKG_PKGVAR:-/var/packages/synofind/var}
+[ -s "$data/config.json" ]

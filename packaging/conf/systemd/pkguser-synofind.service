@@ -1,0 +1,18 @@
+[Unit]
+Description=SynoFind personal file search
+
+[Service]
+Type=simple
+WorkingDirectory=/var/packages/synofind/var
+ExecStart=/var/packages/synofind/target/bin/run-service
+ExecStopPost=/bin/rm -f /var/packages/synofind/var/run/service.pid
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

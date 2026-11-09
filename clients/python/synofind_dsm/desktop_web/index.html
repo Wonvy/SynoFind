@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>SynoFind · 你的统一文件库</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="SynoFind 首页"><span class="brand-symbol" data-icon="folder"></span><span>Syno<span class="brand-light">Find</span></span><span class="local-tag">本机版</span></a>
+    <div class="top-actions">
+      <label class="theme-picker"><span class="sr-only">界面主题</span><select id="theme-select" aria-label="界面主题"><option value="system">跟随系统</option><option value="light">亮色</option><option value="dark">暗色</option></select></label><button id="sources-button" class="button subtle" type="button">数据源</button>
+      <span id="connection-pill" class="connection-pill"><span class="status-dot"></span><span id="connection-label">正在连接本机服务</span></span>
+      <button id="settings-button" class="button subtle" type="button"><span data-icon="settings"></span><span class="settings-label">连接设置</span></button>
+      <button id="shutdown-button" class="button icon-only subtle" type="button" aria-label="退出应用" title="退出应用"><span data-icon="power"></span></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="hero" aria-labelledby="main-title">
+      <div><div class="eyebrow"><span class="eyebrow-line"></span>你的私人文件库</div><h1 id="main-title">文件在各处，<span>查找在这里。</span></h1><p>本机与 NAS 一起搜索。鼠标悬停，按空格即可预览。</p></div>
+      <div class="library-label"><span class="library-icon" data-icon="folder"></span><div><span class="micro-label">当前文件库</span><strong id="library-name">尚未选择共享文件夹</strong></div></div>
+    </section>
+
+    <div id="global-notice" class="notice" role="status" hidden><span data-icon="warning"></span><span id="global-notice-text"></span><button id="notice-action" class="text-button" type="button" hidden>重新连接</button></div>
+
+    <section class="search-card" aria-label="搜索文件">
+      <form id="search-form">
+        <div class="search-input-row"><span class="search-icon" data-icon="search"></span><label class="sr-only" for="search-input">搜索文件名</label><input id="search-input" name="pattern" type="search" placeholder="文件名，例如 合同" autocomplete="off" maxlength="1024"><button id="search-button" class="button primary search-submit" type="submit"><span data-icon="search"></span><span id="search-button-label">搜索文件</span></button><button id="stop-search" class="button stop-search" type="button" hidden>停止搜索</button></div>
+        <div class="search-bottom"><label class="source-picker"><span class="sr-only">搜索数据源</span><select id="source-select" aria-label="搜索数据源"><option value="all">全部数据源</option><option value="nas">NAS</option><option value="local">全部本机文件夹</option></select></label><span class="search-hint">支持 <kbd>*</kbd> 和 <kbd>?</kbd> 通配符</span><details id="filters-details"><summary><span data-icon="filter"></span>筛选条件<span id="filter-count" class="filter-count" hidden>0</span><span class="summary-chevron" data-icon="chevron-down"></span></summary><div class="filter-grid">
+          <label class="field"><span>文件类型</span><select id="extension-filter" name="extension"><option value="">所有类型</option><option value="pdf">PDF</option><option value="doc,docx,odt">文档</option><option value="xls,xlsx,csv">表格</option><option value="ppt,pptx">演示文稿</option><option value="jpg,jpeg,png,gif,webp,bmp">图片</option><option value="mp4,mkv,mov,avi">视频</option><option value="zip,7z,rar,tar,gz">压缩包</option><option value="txt,md,log,json">文本</option></select></label>
+          <div class="field size-field"><span>文件大小 · MB</span><div class="range-inputs"><label class="sr-only" for="min-size-filter">最小文件大小 MB</label><input id="min-size-filter" type="number" min="0" step="any" placeholder="最小"><span>—</span><label class="sr-only" for="max-size-filter">最大文件大小 MB</label><input id="max-size-filter" type="number" min="0" step="any" placeholder="最大"></div></div>
+          <label class="field"><span>修改日期 · 从</span><input id="after-filter" type="date"></label><label class="field"><span>修改日期 · 至</span><input id="before-filter" type="date"></label><button id="reset-filters" class="text-button reset-filters" type="button">清除筛选</button>
+        </div></details></div>
+      </form>
+    </section>
+
+    <section class="results-card" aria-labelledby="results-title" aria-busy="false" id="results-section">
+      <div class="results-toolbar"><div class="results-heading"><h2 id="results-title">搜索结果</h2><span id="results-count" class="result-count" hidden></span></div><div class="results-options"><div class="view-switch" role="group" aria-label="结果视图"><button id="view-details" type="button" aria-pressed="true">列表</button><button id="view-paths" type="button" aria-pressed="false">路径</button></div><label class="sort-control"><span data-icon="sort"></span><span class="sr-only">排序方式</span><select id="sort-select"><option value="name:asc">名称 A → Z</option><option value="name:desc">名称 Z → A</option><option value="mtime:desc">最近修改优先</option><option value="mtime:asc">最早修改优先</option><option value="size:desc">大文件优先</option><option value="size:asc">小文件优先</option></select></label></div></div>
+      <p id="live-results-hint" class="live-results-hint" role="status" hidden></p>
+      <div id="search-error" class="inline-error" role="alert" hidden></div>
+      <div id="empty-state" class="empty-state"><div class="empty-illustration"><span class="empty-folder" data-icon="folder"></span><span class="empty-glass" data-icon="search"></span></div><h3 id="empty-title">正在准备你的文件库</h3><p id="empty-description">正在连接这台电脑上的 SynoFind 服务。</p><button id="empty-action" class="button primary" type="button" hidden>连接群晖</button></div>
+      <div id="loading-state" class="loading-state" role="status" hidden><span class="spinner"></span><div><strong>正在查找文件</strong><p>目录较大时可能需要一些时间，请稍候。</p></div></div>
+      <div id="table-wrap" class="table-wrap" hidden><table id="files-table" class="files-table" role="grid" aria-label="搜索结果，使用上下方向键选择，空格预览"><thead><tr><th scope="col">文件名称</th><th scope="col" class="path-column">所在文件夹</th><th scope="col" class="size-column">大小</th><th scope="col" class="date-column">修改时间</th><th scope="col" class="actions-column"><span class="sr-only">文件操作</span></th></tr></thead><tbody id="file-rows"></tbody></table></div>
+      <div id="pagination" class="pagination" hidden><span id="page-summary"></span><div class="page-controls"><button id="previous-page" class="button page-button" type="button"><span data-icon="chevron-left"></span><span>上一页</span></button><span id="page-number" class="page-number"></span><button id="next-page" class="button page-button" type="button"><span>下一页</span><span data-icon="chevron-right"></span></button></div></div>
+    </section>
+    <footer class="workspace-footer"><span><span data-icon="shield"></span>NAS 官方查询 · 本机文件夹索引 · 每 15 分钟更新</span><span class="footer-local">仅此电脑访问 <span class="footer-dot">·</span> 文件只读</span></footer>
+  </main>
+
+  <dialog id="connection-dialog" class="dialog connection-dialog" aria-labelledby="connection-title">
+    <div class="dialog-header"><div><span class="dialog-eyebrow">你的群晖 · 你的文件</span><h2 id="connection-title">连接群晖</h2></div><button id="close-connection" class="button icon-only subtle" type="button" aria-label="关闭连接设置"><span data-icon="close"></span></button></div>
+    <p id="connection-intro" class="dialog-intro">先登录你的 NAS，再选择要搜索的共享文件夹。</p>
+    <div id="connection-overview" class="connection-overview" hidden>
+      <dl class="profile-summary"><div><dt>NAS 地址</dt><dd id="profile-url"></dd></div><div><dt>当前账户</dt><dd id="profile-username"></dd></div><div><dt>共享文件夹</dt><dd id="profile-root"></dd></div></dl>
+      <div class="connection-choices"><button id="change-library-button" class="button primary" type="button"><span data-icon="folder"></span>更换共享文件夹</button><button id="change-account-button" class="button" type="button">更换 NAS 或账号</button></div>
+    </div>
+    <form id="connection-form">
+      <div id="connection-credentials" class="connection-stage">
+        <span class="wizard-step">第 1 步 · 登录 NAS</span>
+        <label class="field"><span>NAS 地址 <span class="required-label">HTTPS</span></span><input id="connection-url" type="url" required spellcheck="false" placeholder="https://nas.example.com:5001" autocomplete="url"></label>
+        <div class="form-two"><label class="field"><span>用户名</span><input id="connection-username" type="text" required autocomplete="username" maxlength="256"></label><label class="field"><span>密码</span><input id="connection-password" type="password" required autocomplete="off" placeholder="输入群晖账户密码" maxlength="4096"></label></div>
+        <label class="field"><span>两步验证码 <span class="optional-label">如果账户已启用</span></span><input id="connection-otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="当前验证码，可选" maxlength="64"></label>
+      </div>
+      <div id="connection-selection" class="connection-stage" hidden>
+        <div class="selection-heading"><span id="selection-step" class="wizard-step">第 2 步 · 选择共享文件夹</span><button id="edit-account-button" class="text-button" type="button">更换 NAS 或账号</button></div>
+        <p id="selection-account" class="selection-account"></p>
+        <label class="field"><span>要搜索的共享文件夹</span><select id="connection-root" required disabled><option value="">请选择共享文件夹</option></select><small id="shares-description">请选择一个你有权限读取的共享文件夹。</small></label>
+        <button id="reload-shares-button" class="text-button" type="button" hidden>重新读取共享文件夹</button>
+      </div>
+      <details id="connection-advanced" class="advanced-connection"><summary>Windows 共享路径设置<span data-icon="chevron-down"></span></summary><label class="field"><span>共享主机 <span class="optional-label">可选</span></span><input id="connection-smb" type="text" placeholder="NAS 的局域网主机名或 IP" spellcheck="false"><small>留空时使用 NAS 地址中的主机名，仅用于复制 Windows 共享路径。</small></label></details>
+      <div id="library-options" class="library-options" hidden>
+        <label class="field"><span>此共享文件夹在电脑上的位置 <span class="optional-label">可选</span></span><input id="connection-local-root" type="text" placeholder="例如 W:\" spellcheck="false" autocomplete="off"><small>填写已连接的网络盘或本地目录。每个共享文件夹单独保存，不会自动创建网络盘。</small></label>
+        <label class="field"><span>文件预览方式</span><select id="connection-preview-mode"><option value="web">网页内预览</option><option value="quicklook">QuickLook</option><option value="seer">Seer</option></select><small>点击文件或鼠标悬停后按空格，使用这里选择的方式预览。</small></label>
+        <label id="preview-executable-field" class="field" hidden><span>预览工具程序位置 <span class="optional-label">可选</span></span><input id="connection-preview-executable" type="text" placeholder="留空时尝试自动查找已安装的工具" spellcheck="false" autocomplete="off"><small>使用电脑上的 QuickLook 或 Seer 需要配置上面的文件夹位置。</small></label>
+      </div>
+      <label id="remember-option" class="remember-option" hidden><input id="connection-remember" type="checkbox" checked><span><strong>记住此账户</strong><small id="remember-description">仅当前 Windows 用户加密保存；不保存两步验证码。</small></span><span data-icon="lock"></span></label>
+      <button id="connect-button" class="button primary wide-button" type="submit"><span data-icon="link"></span><span id="connect-button-label">登录并读取共享文件夹</span></button>
+    </form>
+    <div id="connection-error" class="inline-error connection-error" role="alert" hidden></div>
+    <div id="saved-connection" class="saved-connection" hidden><span data-icon="shield"></span><span>此电脑已加密保存账户，密码不会在页面回显。</span><button id="reconnect-button" class="text-button" type="button">使用已保存账户连接</button></div>
+    <div class="connection-bottom"><span id="connection-state-text">凭据仅用于连接你的群晖。</span><div><button id="disconnect-button" class="text-button" type="button" hidden>断开连接</button><button id="forget-button" class="text-button danger" type="button" hidden>忘记此账户</button></div></div>
+  </dialog>
+
+  <dialog id="preview-dialog" class="dialog preview-dialog" aria-labelledby="preview-title"><div class="dialog-header"><div class="preview-heading"><span class="dialog-eyebrow">文件预览</span><h2 id="preview-title"></h2></div><button id="close-preview" class="button icon-only subtle" type="button" aria-label="关闭文件预览"><span data-icon="close"></span></button></div><p id="preview-path" class="preview-path"></p><div id="preview-meta" class="preview-meta"></div><div id="preview-content" class="preview-content"></div><div class="preview-footer"><span>文件保持只读</span><button id="preview-reveal" class="button primary" type="button"><span data-icon="folder"></span><span id="preview-reveal-label">打开所在文件夹</span></button></div></dialog>
+  <dialog id="sources-dialog" class="dialog sources-dialog" aria-labelledby="sources-title">
+    <div class="dialog-header"><div><span class="dialog-eyebrow">文件集中查找</span><h2 id="sources-title">数据源</h2></div><button id="close-sources" class="button subtle" type="button">关闭</button></div>
+    <p class="dialog-intro">添加要搜索的本机文件夹。首次收录需要一些时间，之后直接查询索引；不会修改原始文件。</p>
+    <div class="source-nas"><strong>群晖 NAS</strong><span id="source-nas-label"></span><button id="source-nas-settings" class="text-button" type="button">管理连接</button></div>
+    <div id="source-list" class="source-list"></div>
+    <button id="scan-local" class="button" type="button">刷新本机索引</button>
+    <form id="source-form" class="source-form">
+      <label class="field"><span>本机文件夹</span><input id="source-root" type="text" required placeholder="例如 D:\资料" autocomplete="off" spellcheck="false"><small>可添加多个文件夹或整个盘符。重复保存同一路径可更新预览方式。</small></label>
+      <label class="field"><span>预览方式</span><select id="source-mode"><option value="web">网页内预览</option><option value="quicklook">QuickLook</option><option value="seer">Seer</option></select></label>
+      <label class="field" id="source-executable-field" hidden><span>预览工具程序位置（可选）</span><input id="source-executable" type="text" placeholder="留空时尝试自动查找"></label>
+      <button id="save-source" class="button primary" type="submit">添加 / 保存文件夹</button>
+    </form><div id="source-error" class="inline-error" role="alert" hidden></div>
+  </dialog>
+  <div id="hover-card" class="hover-card" hidden aria-hidden="true"><strong id="hover-name"></strong><div id="hover-content"></div><small id="hover-caption"></small></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

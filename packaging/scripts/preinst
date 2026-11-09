@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+fail() {
+    printf '%s\n' "$1" >&2
+    if [ -n "${SYNOPKG_TEMP_LOGFILE:-}" ]; then printf '%s\n' "$1" > "$SYNOPKG_TEMP_LOGFILE"; fi
+    exit 1
+}
+data=${SYNOPKG_PKGVAR:-/var/packages/synofind/var}
+# Reinstalling retained data and upgrading must not overwrite credentials.
+if [ -s "$data/config.json" ]; then exit 0; fi
+port=${wizard_port:-8787}
+case "$port" in ''|*[!0-9]*) fail '服务端口必须为 1024–65535 的数字。' ;; esac
+[ "$port" -ge 1024 ] && [ "$port" -le 65535 ] || fail '服务端口必须为 1024–65535。'
+password=${wizard_password:-}
+[ "${#password}" -ge 12 ] || fail '请在安装向导设置至少 12 个字符的 SynoFind 密码。'
+password_bytes=$(printf '%s' "$password" | wc -c | tr -d ' ')
+[ "$password_bytes" -le 72 ] || fail 'SynoFind 密码的 UTF-8 编码不得超过 72 字节。'
+case "$password" in *'
+'*) fail '密码不得含换行符。' ;; esac
+exit 0

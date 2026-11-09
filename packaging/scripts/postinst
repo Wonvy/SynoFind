@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+umask 077
+data=${SYNOPKG_PKGVAR:-/var/packages/synofind/var}
+target=${SYNOPKG_PKGDEST:-/var/packages/synofind/target}
+mkdir -p "$data"
+chmod 700 "$data"
+if [ ! -s "$data/config.json" ]; then
+    # The shell's builtin printf passes the password through stdin, not argv.
+    synofind_setup_password=${wizard_password:-}
+    unset wizard_password
+    printf '%s\n' "$synofind_setup_password" | "$target/bin/synofind" init \
+        --data-dir "$data" --port "${wizard_port:-8787}" \
+        --root /volume1/Wonvy --smb-root '\\10.0.0.10\Wonvy'
+    unset synofind_setup_password
+fi
+unset wizard_password
+# Only the numeric port is copied into the public DSM launcher.
+port=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$data/config.json" | head -n 1)
+case "$port" in ''|*[!0-9]*) echo 'Cannot read the saved SynoFind port.' >&2; exit 1 ;; esac
+[ "$port" -ge 1024 ] && [ "$port" -le 65535 ]
+printf 'window.synofindPort = %s;\n' "$port" > "$target/ui/port.js"
+chmod 644 "$target/ui/port.js"
+if [ -n "${SYNOPKG_TEMP_LOGFILE:-}" ]; then
+    printf '%s\n' '请在 控制面板 → 共享文件夹 → Wonvy → 编辑 → 权限 → 系统内部用户，为 synofind 设置只读权限。然后打开 SynoFind 并刷新索引。' > "$SYNOPKG_TEMP_LOGFILE"
+fi

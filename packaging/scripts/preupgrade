@@ -1,0 +1,3 @@
+#!/bin/sh
+# DSM stops the service before replacing the payload. Persistent appdata stays.
+exit 0

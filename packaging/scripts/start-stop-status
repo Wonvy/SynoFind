@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+data=${SYNOPKG_PKGVAR:-/var/packages/synofind/var}
+target=${SYNOPKG_PKGDEST:-/var/packages/synofind/target}
+control=/usr/syno/bin/synosystemctl
+unit=pkguser-synofind.service
+pidfile="$data/run/service.pid"
+running() {
+    [ -r "$pidfile" ] || return 1
+    pid=$(cat "$pidfile")
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pid" -gt 1 ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    actual=$(readlink "/proc/$pid/exe" 2>/dev/null) || return 1
+    expected=$(readlink -f "$target/bin/synofind") || return 1
+    [ "$actual" = "$expected" ]
+}
+case "${1:-}" in
+    prestart)
+        [ -x "$target/bin/synofind" ] && [ -s "$data/config.json" ] && [ -x "$control" ]
+        ;;
+    start)
+        if running; then exit 0; fi
+        "$control" start "$unit"
+        count=0
+        while [ "$count" -lt 15 ]; do
+            if running; then sleep 1; running && exit 0; fi
+            count=$((count + 1))
+            sleep 1
+        done
+        echo 'SynoFind did not start. Inspect the package log and service journal.' >&2
+        exit 1
+        ;;
+    stop)
+        "$control" stop "$unit"
+        count=0
+        while running && [ "$count" -lt 40 ]; do count=$((count + 1)); sleep 1; done
+        if running; then echo 'SynoFind did not stop cleanly.' >&2; exit 1; fi
+        ;;
+    status)
+        if running; then exit 0; else exit 3; fi
+        ;;
+    prestop)
+        exit 0
+        ;;
+    *)
+        echo 'Usage: start-stop-status {start|stop|status|prestart|prestop}' >&2
+        exit 2
+        ;;
+esac

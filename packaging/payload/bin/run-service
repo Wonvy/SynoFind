@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+umask 077
+data=/var/packages/synofind/var
+mkdir -p "$data/run"
+printf '%s\n' "$$" > "$data/run/service.pid"
+exec /var/packages/synofind/target/bin/synofind serve --data-dir "$data"
