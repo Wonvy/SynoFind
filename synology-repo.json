@@ -1,0 +1,31 @@
+{
+  "packages": [
+    {
+      "package": "synofind",
+      "version": "0.2.0-0002",
+      "dname": "SynoFind",
+      "desc": "群晖 File Station 文件名搜索、预览与下载。",
+      "link": "https://wonvy.github.io/SynoFind/SynoFind-apollolake-0.2.0.spk",
+      "thumbnail": [
+        "https://wonvy.github.io/SynoFind/icon_64.png"
+      ],
+      "thumbnail_retina": [
+        "https://wonvy.github.io/SynoFind/icon_256.png",
+        "https://wonvy.github.io/SynoFind/icon_256.png"
+      ],
+      "qinst": true,
+      "qupgrade": true,
+      "qstart": true,
+      "download_count": 0,
+      "recent_download_count": 0,
+      "snapshot": [],
+      "distributor": "Wonvy",
+      "distributor_url": "https://github.com/Wonvy/SynoFind",
+      "maintainer": "Wonvy",
+      "maintainer_url": "https://github.com/Wonvy/SynoFind",
+      "md5": "e8a52eb8e23b66a22be09fe0dde969e9",
+      "size": 7432192,
+      "startable": "yes"
+    }
+  ]
+}
