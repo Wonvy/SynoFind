@@ -12,7 +12,8 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTICE_NAME = re.compile(r"^(license|licence|notice|copying|copyright|patents)(?:[._-]|$)", re.I)
-BROWSER_PACKAGES = ("react", "react-dom", "scheduler", "lucide-react", "pdfjs-dist")
+BROWSER_PACKAGES = ("react", "react-dom", "scheduler", "lucide-react", "pdfjs-dist", "react-file-icon",
+                    "@web-ppt/core", "@web-ppt/viewer-core", "ag-psd")
 
 
 def json_stream(text: str):
@@ -101,7 +102,8 @@ The following upstream copyright, license, attribution and patent notices are
 reproduced for redistribution with the SynoFind executable and web application.
 
 Scope: the Go runtime/standard library and selected Go module graph, plus the
-browser runtime dependencies React, React DOM, Scheduler, Lucide and PDF.js.
+browser runtime dependencies React, React DOM, Scheduler, Lucide, PDF.js, React
+File Icon, Web-PPT and ag-psd.
 The module graph and upstream aggregate notices may also name build/test-only
 components; their inclusion does not assert that they are linked into SynoFind.
 PDF.js CMaps, fonts, ICC profiles and JavaScript decoder fallback resources retain

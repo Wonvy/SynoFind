@@ -1,6 +1,6 @@
 [
   {
     "step_title": "升级 SynoFind",
-    "items": [{ "desc": "升级将保留登录密码、API 令牌、目录设置和文件索引。源文件不会被修改。" }]
+    "items": [{ "desc": "升级将保留登录密码、API 令牌和设置；新版移除 SynoFind 自建的文件名索引，搜索改用群晖 File Station API。源文件不会被修改。" }]
   }
 ]

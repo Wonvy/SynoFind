@@ -3,7 +3,7 @@
     "step_title": "设置 SynoFind",
     "invalid_next_disabled": true,
     "items": [
-      { "desc": "SynoFind 是个人文件搜索服务。初次安装请设置独立密码；重新安装保留的数据时，会继续使用原密码和端口。安装后请为套件账户授予 Wonvy 只读权限。" },
+      { "desc": "SynoFind 通过群晖 File Station API 搜索文件名，不建立本地索引。初次安装请设置独立密码；启动后在设置页配置 DSM 只读账户和共享文件夹路径。" },
       {
         "type": "password",
         "desc": "网页登录密码（不使用 DSM 密码）",

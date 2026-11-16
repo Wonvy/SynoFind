@@ -1,17 +1,24 @@
-import { useState } from 'react';
-import { CheckCircle2, Clock3, Database, FolderOpen, Info, LoaderCircle, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { api, messageOf } from './api';
+import { CheckCircle2, Clock3, Database, FolderOpen, Info, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { formatDate } from './format';
-import type { IndexStatus, Notify } from './types';
+import type { IndexStatus } from './types';
 
-export function IndexPage({ status, error, refresh, notify }: { status: IndexStatus | null; error: string; refresh: () => void; notify: Notify }) {
-  const [busy, setBusy] = useState(false);
-  async function scan() {
-    setBusy(true);
-    try { await api<{ started: boolean }>('/index/scan', { method: 'POST' }); notify('已开始刷新索引，扫描进度会自动更新。'); refresh(); }
-    catch (reason) { notify(messageOf(reason), 'error'); refresh(); }
-    finally { setBusy(false); }
-  }
-  const errors = [...new Set([status?.last_error ?? '', ...(status?.errors ?? [])].filter(Boolean))];
-  return <><div className="page-heading"><div><span className="eyebrow">ALWAYS IN THE KNOW</span><h1>索引状态</h1><p>查看文件库的更新情况，让每一次搜索都有迹可循。</p></div><button className="button primary" onClick={() => void scan()} disabled={busy || status?.running || !status}>{busy || status?.running ? <LoaderCircle size={17} className="spin" /> : <RefreshCw size={17} />}{status?.running ? '正在扫描' : '刷新索引'}</button></div>{error && <div className="inline-alert error" role="alert"><TriangleAlert size={17} /><span>{error}</span><button className="text-button" onClick={refresh}>重试</button></div>}<div className="stats-grid"><div className="stat-card"><span className="stat-icon"><Database size={21} /></span><span className="stat-label">已索引文件</span><strong>{status ? status.total_files.toLocaleString('zh-CN') : '—'}<small>个</small></strong><p>可通过网页与 API 搜索</p></div><div className="stat-card"><span className="stat-icon green"><Clock3 size={21} /></span><span className="stat-label">最近完成时间</span><strong className="date-stat">{status?.last_completed_at ? formatDate(status.last_completed_at) : '等待首次完成'}</strong><p>{status?.last_duration_ms ? `上次扫描耗时 ${(status.last_duration_ms / 1000).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 秒` : '扫描完成后记录耗时'}</p></div><div className="stat-card"><span className={`stat-icon ${errors.length ? 'orange' : 'purple'}`}>{errors.length ? <TriangleAlert size={21} /> : <CheckCircle2 size={21} />}</span><span className="stat-label">扫描状态</span><strong className="text-stat">{status?.running ? '正在更新' : !status ? '正在连接' : errors.length ? '需要注意' : status.last_completed_at ? '已完成' : '尚未完成'}</strong><p>{status?.running ? `本次已检查 ${status.scanned_files.toLocaleString('zh-CN')} 个文件` : errors.length ? '部分文件或目录需要检查' : '索引按设定时间自动更新'}</p></div></div><section className="panel"><div className="panel-heading"><div><h2>文件来源</h2><p>SynoFind 只读取文件名称、路径和属性，不修改原始文件。</p></div><span className="subtle-badge"><ShieldCheck size={13} />只读访问</span></div><div className="source-row"><span className="source-icon"><FolderOpen size={25} /></span><div><strong>{status?.root_path?.split(/[\\/]/).filter(Boolean).pop() || '文件库'}</strong><code>{status?.root_path || '正在获取目录信息…'}</code></div><a className="text-button" href="#settings">管理来源</a></div>{status?.running && <div className="scan-progress"><div><span><LoaderCircle className="spin" size={15} />正在扫描目录</span><span>{status.scanned_files.toLocaleString('zh-CN')} 个文件</span></div><div className="indeterminate-progress"><span /></div><p>扫描期间可以继续搜索。完成后结果会自动更新。</p></div>}</section>{errors.length > 0 && <section className="panel error-panel"><div className="panel-heading"><div><h2><TriangleAlert size={17} />扫描提示</h2><p>检查共享文件夹对 SynoFind 套件账户的读取权限，然后重新扫描。</p></div></div><ul className="error-list">{errors.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>}<div className="info-note"><Info size={18} /><p>首次扫描可能需要一些时间。扫描中断或目录暂时不可读时，已有记录会保留；重新扫描成功后再校准结果。</p></div></>;
+export function IndexPage({ status, error }: { status: IndexStatus | null; error: string }) {
+  const message = error || status?.last_error || '';
+  return <>
+    <div className="page-heading">
+      <div><span className="eyebrow">NATIVE DSM SEARCH</span><h1>DSM 搜索连接</h1><p>搜索任务由群晖 File Station 执行，SynoFind 不扫描文件或维护索引。</p></div>
+      <span className="subtle-badge">{message ? <TriangleAlert size={14} /> : <ShieldCheck size={14} />}{message ? '连接异常' : status?.connected ? '已连接' : '待连接'}</span>
+    </div>
+    <div className="stats-grid">
+      <div className="stat-card"><span className="stat-icon"><Database size={21} /></span><span className="stat-label">搜索服务</span><strong className="text-stat">File Station.Search</strong><p>群晖官方异步搜索 API</p></div>
+      <div className="stat-card"><span className="stat-icon green"><FolderOpen size={21} /></span><span className="stat-label">搜索范围</span><strong className="text-stat">{status?.root_path?.split('/').filter(Boolean).pop() || '未设置'}</strong><p>{status?.root_path || '前往设置选择共享文件夹'}</p></div>
+      <div className="stat-card"><span className="stat-icon purple"><Clock3 size={21} /></span><span className="stat-label">最近搜索</span><strong className="date-stat">{status?.last_search_at ? formatDate(status.last_search_at) : '尚未搜索'}</strong><p>{status?.connected ? '群晖 API 已连接' : '首次搜索时建立 DSM 会话'}</p></div>
+    </div>
+    {message && <div className="inline-alert error" role="alert"><TriangleAlert size={17} /><span>{message}</span></div>}
+    <section className="panel">
+      <div className="panel-heading"><div><h2>文件名搜索</h2><p>使用 DSM 账户执行搜索和读取；共享文件夹权限仍由群晖决定。</p></div><span className="subtle-badge"><CheckCircle2 size={13} />只读</span></div>
+      <div className="source-row"><span className="source-icon"><FolderOpen size={25} /></span><div><strong>{status?.root_path?.split('/').filter(Boolean).pop() || '文件库'}</strong><code>{status?.root_path || '尚未配置 File Station 路径'}</code></div><a className="text-button" href="#settings">管理连接</a></div>
+    </section>
+    <div className="info-note"><Info size={18} /><p>SynoFind 把文件名、类型、大小和修改时间条件交给群晖搜索；复制路径、下载和预览也通过已配置的 DSM 只读账户完成。</p></div>
+  </>;
 }

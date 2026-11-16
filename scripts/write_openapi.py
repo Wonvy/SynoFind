@@ -31,9 +31,9 @@ schemas = {
         "preview_type": {"type": "string", "enum": ["image", "pdf", "text", ""]}, "smb_path": STR,
     }, ("id", "name", "path", "size", "modified_at", "extension", "preview_type", "smb_path")),
     "SearchResult": obj({"items": {"type": "array", "items": ref("File")}, "total": INT, "page": INT, "limit": INT}, ("items", "total", "page", "limit")),
-    "IndexStatus": obj({"running": {"type": "boolean"}, "total_files": INT, "scanned_files": INT, "started_at": TIME, "last_completed_at": TIME, "last_duration_ms": INT, "last_error": STR, "errors": {"type": "array", "items": STR}, "root_path": STR}, ("running", "total_files", "scanned_files", "errors")),
-    "Settings": obj({"root_path": STR, "smb_root": STR, "scan_interval_minutes": {"type": "integer", "minimum": 1, "maximum": 1440}, "port": {"type": "integer", "readOnly": True, "minimum": 1024, "maximum": 65535}}, ("root_path", "smb_root", "scan_interval_minutes", "port")),
-    "SettingsUpdate": obj({"root_path": STR, "smb_root": STR, "scan_interval_minutes": {"type": "integer", "minimum": 1, "maximum": 1440}}, ("root_path", "smb_root", "scan_interval_minutes")),
+    "IndexStatus": obj({"connected": {"type": "boolean"}, "last_search_at": TIME, "last_error": STR, "root_path": STR}, ("connected", "last_error", "root_path")),
+    "Settings": obj({"root_path": STR, "smb_root": STR, "dsm_url": STR, "dsm_username": STR, "has_dsm_password": {"type": "boolean"}, "port": {"type": "integer", "readOnly": True, "minimum": 1024, "maximum": 65535}}, ("root_path", "smb_root", "dsm_url", "dsm_username", "has_dsm_password", "port")),
+    "SettingsUpdate": obj({"root_path": STR, "smb_root": STR, "dsm_url": STR, "dsm_username": STR, "dsm_password": {"type": "string", "format": "password", "writeOnly": True}}, ("root_path", "smb_root", "dsm_url", "dsm_username")),
     "Token": obj({"id": STR, "name": STR, "created_at": TIME, "last_used_at": TIME}, ("id", "name", "created_at")),
     "TokenCreated": obj({"id": STR, "name": STR, "created_at": TIME, "token": {"type": "string", "description": "Only revealed in this response; store securely."}}, ("id", "name", "created_at", "token")),
     "TokenList": obj({"items": {"type": "array", "items": ref("Token")}}, ("items",)),
@@ -46,7 +46,7 @@ def response(schema, description="Success"):
 
 def operation(summary, schema=None, *, security=None, status="200", errors=("400", "401", "403", "500")):
     responses = {status: response(schema) if schema is not None else {"description": "Success; no response body."}}
-    responses.update({code: response(ref("Error"), {"400": "Invalid parameters", "401": "Authentication required", "403": "Access or CSRF denied", "404": "Not found", "409": "Scan in progress or conflicting state", "429": "Rate limited", "500": "Internal error"}.get(code, "Error")) for code in errors})
+    responses.update({code: response(ref("Error"), {"400": "Invalid parameters", "401": "Authentication required", "403": "Access or CSRF denied", "404": "Not found", "409": "Conflicting state", "429": "Rate limited", "500": "Internal error"}.get(code, "Error")) for code in errors})
     out = {"summary": summary, "responses": responses}
     if security is not None:
         out["security"] = security
@@ -72,9 +72,9 @@ paths["/auth/session"] = {"get": operation("Inspect web session and obtain CSRF 
 logout = operation("End web session", security=SESSION_ONLY, status="204")
 logout["parameters"] = [CSRF]
 paths["/auth/logout"] = {"post": logout}
-search = operation("Search filenames and relative paths", ref("SearchResult"))
+search = operation("Search filenames through the configured DSM File Station API", ref("SearchResult"))
 search["parameters"] = [
-    query("q", STR, "Space-separated case-insensitive literal substrings; every term must match the path."),
+	query("q", STR, "Filename pattern accepted by DSM File Station.Search; parent paths and file contents are not searched."),
     query("ext", STR, "Comma-separated extensions without dots, e.g. pdf,docx."),
     query("min_size", {**INT, "minimum": 0}, "Minimum bytes."), query("max_size", {**INT, "minimum": 0}, "Maximum bytes."),
     query("modified_after", {"type": "string", "format": "date-time"}, "Modification lower bound (RFC3339)."),
@@ -89,10 +89,8 @@ detail = operation("Get file metadata", ref("File"), errors=("400", "401", "403"
 detail["parameters"] = [FILE_ID]
 paths["/files/{id}"] = {"get": detail}
 content = operation("Stream original file bytes for download", errors=("400", "401", "403", "404", "500"))
-content["parameters"] = [FILE_ID, {"name": "Range", "in": "header", "schema": STR, "description": "HTTP byte range, e.g. bytes=0-1023."}, {"name": "If-Range", "in": "header", "schema": STR, "description": "Use with Range to verify a cached validator."}]
+content["parameters"] = [FILE_ID]
 content["responses"]["200"] = {"description": "Complete file", "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
-content["responses"]["206"] = {"description": "Partial file", "headers": {"Content-Range": {"schema": STR}}, "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
-content["responses"]["416"] = {"description": "Requested range is unsatisfiable; standard HTTP response."}
 paths["/files/{id}/content"] = {"get": content}
 preview = operation("Preview safe supported file types", errors=("400", "401", "403", "404", "500"))
 preview["parameters"] = [FILE_ID]
@@ -100,11 +98,8 @@ preview["responses"]["200"] = {"description": "Image, PDF or plain text; active 
 preview["responses"]["415"] = response(ref("Error"), "Preview not supported for this file type")
 preview["responses"]["413"] = response(ref("Error"), "Plain text preview exceeds the 2 MiB limit; download the file instead")
 paths["/files/{id}/preview"] = {"get": preview}
-paths["/index/status"] = {"get": operation("Read index progress and last result", ref("IndexStatus"))}
-scan = operation("Request an index refresh", obj({"started": {"type": "boolean"}}, ("started",)), status="202", errors=("400", "401", "403", "409", "500"))
-scan["parameters"] = [CSRF]
-paths["/index/scan"] = {"post": scan}
-settings = operation("Update the configured source and scan interval", ref("Settings"), security=SESSION_ONLY, errors=("400", "401", "403", "409", "500"))
+paths["/index/status"] = {"get": operation("Read the latest DSM search connection status", ref("IndexStatus"))}
+settings = operation("Update the DSM connection and File Station search scope", ref("Settings"), security=SESSION_ONLY, errors=("400", "401", "403", "500"))
 settings["requestBody"] = body(ref("SettingsUpdate"))
 settings["parameters"] = [CSRF]
 paths["/settings"] = {"get": operation("Read personal server settings", ref("Settings"), security=SESSION_ONLY), "put": settings}
@@ -119,7 +114,7 @@ paths["/health"] = {"get": operation("Public liveness check without personal dat
 
 document = {
     "openapi": "3.0.3",
-    "info": {"title": "SynoFind API", "version": "0.1.0", "description": "Personal, read-only NAS file search and retrieval. Bearer tokens can use search/files/index; settings and token administration require a web session and CSRF protection. No DSM credentials are accepted."},
+    "info": {"title": "SynoFind API", "version": "0.2.0", "description": "Personal, read-only NAS filename search and retrieval through Synology File Station APIs. Bearer tokens can search and read files; settings and token administration require a web session and CSRF protection. DSM credentials are write-only configuration values and are never returned."},
     "servers": [{"url": "/api/v1", "description": "Same SynoFind origin"}],
     "security": [{"ApiToken": []}, {"SessionCookie": []}],
     "paths": paths,

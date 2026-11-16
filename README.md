@@ -2,7 +2,9 @@
 
 通过群晖官方 File Station API，在 Windows 本机网页中搜索、预览 NAS 文件，也可用 API 或命令行获取文件。
 
-当前版本 **0.5.0** 不预设任何 NAS 地址、账户或共享目录。解压后双击 `SynoFind.exe`，填写自己的 NAS 地址和账户，登录后从官方 API 返回的共享列表中选择文件夹，再开始使用。电脑无需安装 Python，NAS 无需安装 SynoFind 套件。
+Windows 当前版本 **0.5.0** 不预设任何 NAS 地址、账户或共享目录。解压后双击 `SynoFind.exe`，填写自己的 NAS 地址和账户，登录后从官方 API 返回的共享列表中选择文件夹，再开始使用。电脑无需安装 Python，NAS 无需安装 SynoFind 套件。
+
+仓库也保留 DSM `.spk` 套件实现。套件版直接调用群晖官方 File Station API 搜索文件名，不在 NAS 遍历文件或建立自己的索引。安装和配置见[套件说明](docs/install.md)。
 
 ## 开始使用
 
@@ -34,7 +36,7 @@ py -3 -m synofind_dsm --url https://nas.example.com:5001 --user reader --root /D
 
 ## 搜索边界
 
-搜索由 NAS 官方异步任务处理。SynoFind 不自建索引、不定时扫描文件、不提取正文；这不代表 NAS 处理搜索时完全免扫描，也不承诺复用 Universal Search 索引或秒级返回。当前按文件名搜索，不做正文、OCR、拼音或父目录路径全文搜索。
+搜索由 NAS 官方异步任务处理。SynoFind 不自建索引、不定时扫描文件、不提取正文；这不代表 NAS 处理搜索时完全免扫描，也不承诺 File Station.Search 每次都复用 Universal Search 索引或秒级返回。套件与客户端当前均按文件名搜索，不做正文、OCR、拼音或父目录路径匹配。
 
 下载不承诺 HTTP Range 断点续传。本工具不提供 NAS 文件上传、修改或删除。
 
@@ -59,9 +61,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build_desktop.ps1
 
 构建中间文件在 `work/desktop-build`，交付 ZIP、源码与校验文件在 `outputs`。打包排除本机配置、凭据、缓存与虚拟环境。Python 包提供 `synofind-desktop` 和 `synofind-dsm` 两个入口。
 
-## 历史版本
+## DSM 套件
 
-旧的 0.1.0 `.spk` 独立索引方案和源码保留在项目中，当前应用不需要它运行。旧 [安装说明](docs/install.md)、[API v1 文档](docs/api.md)仅对应历史套件。若要停止旧扫描，请手动在 DSM 套件中心停止它；新应用不会自动卸载或修改旧套件。
+套件版使用 DSM `SYNO.FileStation.Search` 异步任务 API，并通过 File Station API 读取文件详情、预览和下载。DSM 只读账户和 File Station 共享路径在套件设置页配置；文件路径权限仍由该 DSM 账户决定。它不使用旧版 SynoFind SQLite 文件名索引。
+
+0.1.0 套件可升级到当前源码的套件实现。升级时保留 SynoFind 登录密码与 API 令牌，旧系统路径会迁移为 File Station 共享路径格式；需在设置中填写 DSM API 账户。详见[套件安装说明](docs/install.md)和[API 文档](docs/api.md)。
 
 本项目为第三方工具，与 Synology 官方产品无隶属关系。
 

@@ -1,6 +1,6 @@
 param(
-    [string]$Version = '0.1.0',
-    [int]$Build = 1,
+    [string]$Version = '0.2.1',
+    [int]$Build = 2,
     [string]$GoPath = '',
     [switch]$SkipTests
 )

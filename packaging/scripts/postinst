@@ -11,7 +11,7 @@ if [ ! -s "$data/config.json" ]; then
     unset wizard_password
     printf '%s\n' "$synofind_setup_password" | "$target/bin/synofind" init \
         --data-dir "$data" --port "${wizard_port:-8787}" \
-        --root /volume1/Wonvy --smb-root '\\10.0.0.10\Wonvy'
+	    --root /Wonvy --smb-root ''
     unset synofind_setup_password
 fi
 unset wizard_password
@@ -22,5 +22,5 @@ case "$port" in ''|*[!0-9]*) echo 'Cannot read the saved SynoFind port.' >&2; ex
 printf 'window.synofindPort = %s;\n' "$port" > "$target/ui/port.js"
 chmod 644 "$target/ui/port.js"
 if [ -n "${SYNOPKG_TEMP_LOGFILE:-}" ]; then
-    printf '%s\n' '请在 控制面板 → 共享文件夹 → Wonvy → 编辑 → 权限 → 系统内部用户，为 synofind 设置只读权限。然后打开 SynoFind 并刷新索引。' > "$SYNOPKG_TEMP_LOGFILE"
+    printf '%s\n' '请打开 SynoFind，在“设置与 API”中配置 DSM API 地址、只读 DSM 账户和 File Station 共享路径。无需为 synofind 系统账户设置共享目录权限。' > "$SYNOPKG_TEMP_LOGFILE"
 fi

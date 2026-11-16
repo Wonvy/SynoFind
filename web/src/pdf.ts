@@ -23,7 +23,7 @@ export function pdfErrorMessage(reason: unknown): string {
   if (error?.name === 'InvalidPDFException') return 'PDF 文件格式无效或已损坏，请下载后检查。';
   if (error?.status === 401) return '登录已过期，请重新登录后预览。';
   if (error?.status === 403) return '没有读取此文件的权限。';
-  if (error?.status === 404) return '文件已移动或删除，请刷新索引。';
+  if (error?.status === 404) return '文件已移动或删除，请重新搜索。';
   if (error?.name === 'ResponseException' || error instanceof TypeError) return '无法读取 PDF，请检查网络连接或下载后查看。';
   return 'PDF 预览未能完成。可以重试，或下载后查看。';
 }

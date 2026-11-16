@@ -1,6 +1,6 @@
 [
   {
     "step_title": "卸载 SynoFind",
-    "items": [{ "desc": "仅卸载程序。配置、账号、API 令牌和索引默认保留，方便重新安装后继续使用；Wonvy 中的原始文件始终保留。" }]
+    "items": [{ "desc": "配置、SynoFind 账号、DSM API 凭据和 API 令牌默认保留，方便重新安装后继续使用；SynoFind 不保留文件索引，原始共享文件始终保留。" }]
   }
 ]

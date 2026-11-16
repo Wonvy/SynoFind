@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
@@ -36,39 +38,157 @@ type SearchResult struct {
 }
 
 func openDB(dataDir string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", filepath.Join(dataDir, "index.db"))
+	statePath := filepath.Join(dataDir, "state.db")
+	legacyPath := filepath.Join(dataDir, "index.db")
+	if _, err := os.Stat(statePath); errors.Is(err, os.ErrNotExist) {
+		if _, legacyErr := os.Stat(legacyPath); legacyErr == nil {
+			legacy, openErr := sql.Open("sqlite", legacyPath)
+			if openErr != nil {
+				return nil, openErr
+			}
+			legacy.SetMaxOpenConns(1)
+			if _, openErr = legacy.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS tokens(id TEXT PRIMARY KEY,name TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,last_used_at TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,expires INTEGER NOT NULL);
+DROP TRIGGER IF EXISTS files_ai; DROP TRIGGER IF EXISTS files_ad; DROP TRIGGER IF EXISTS files_au;
+DROP TABLE IF EXISTS files_fts; DROP TABLE IF EXISTS scan_files; DROP TABLE IF EXISTS files;
+DELETE FROM meta WHERE key IN ('index_status','last_completed_at');
+INSERT INTO meta(key,value) VALUES('schema_version','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value;`); openErr != nil {
+				legacy.Close()
+				return nil, openErr
+			}
+			if _, openErr = legacy.Exec("VACUUM"); openErr != nil {
+				legacy.Close()
+				return nil, openErr
+			}
+			if openErr = legacy.Close(); openErr != nil {
+				return nil, openErr
+			}
+			_ = os.Remove(legacyPath + "-wal")
+			_ = os.Remove(legacyPath + "-shm")
+			if openErr = os.Rename(legacyPath, statePath); openErr != nil {
+				return nil, openErr
+			}
+		} else if legacyErr != nil && !errors.Is(legacyErr, os.ErrNotExist) {
+			return nil, legacyErr
+		}
+	} else if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", statePath)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
  CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
- INSERT OR IGNORE INTO meta VALUES('schema_version','1');
- CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,path TEXT NOT NULL UNIQUE,name TEXT NOT NULL,path_fold TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,extension TEXT NOT NULL);
- CREATE INDEX IF NOT EXISTS files_ext ON files(extension);
- CREATE INDEX IF NOT EXISTS files_mtime ON files(mtime);
- CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(path_fold,content='files',content_rowid='rowid',tokenize='trigram');
- CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN INSERT INTO files_fts(rowid,path_fold) VALUES(new.rowid,new.path_fold); END;
- CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN INSERT INTO files_fts(files_fts,rowid,path_fold) VALUES('delete',old.rowid,old.path_fold); END;
- CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE OF path_fold ON files WHEN old.path_fold!=new.path_fold BEGIN INSERT INTO files_fts(files_fts,rowid,path_fold) VALUES('delete',old.rowid,old.path_fold); INSERT INTO files_fts(rowid,path_fold) VALUES(new.rowid,new.path_fold); END;
- CREATE TABLE IF NOT EXISTS scan_files(id TEXT PRIMARY KEY,path TEXT NOT NULL UNIQUE,name TEXT NOT NULL,path_fold TEXT NOT NULL,size INTEGER NOT NULL,mtime INTEGER NOT NULL,extension TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS tokens(id TEXT PRIMARY KEY,name TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,last_used_at TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS sessions(hash TEXT PRIMARY KEY,csrf TEXT NOT NULL,expires INTEGER NOT NULL);
+ INSERT INTO meta(key,value) VALUES('schema_version','2') ON CONFLICT(key) DO UPDATE SET value=excluded.value;
  `)
 	if err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err = os.Chmod(filepath.Join(dataDir, "index.db"), 0600); err != nil {
+	if err = os.Chmod(statePath, 0600); err != nil {
 		db.Close()
 		return nil, err
 	}
-	var version string
-	if err = db.QueryRow("SELECT value FROM meta WHERE key='schema_version'").Scan(&version); err != nil || version != "1" {
-		db.Close()
-		return nil, fmt.Errorf("不支持的索引版本：%s", version)
-	}
 	return db, nil
+}
+
+func signedFileID(secret, remotePath string) string {
+	key := sha256.Sum256([]byte(secret))
+	mac := hmac.New(sha256.New, key[:])
+	_, _ = mac.Write([]byte(remotePath))
+	signature := mac.Sum(nil)[:16]
+	return base64.RawURLEncoding.EncodeToString([]byte(remotePath)) + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func verifyFileID(secret, id, root string) (string, error) {
+	parts := strings.Split(id, ".")
+	if len(parts) != 2 {
+		return "", sql.ErrNoRows
+	}
+	remotePathBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil || len(remotePathBytes) == 0 || len(remotePathBytes) > 4096 {
+		return "", sql.ErrNoRows
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(signature) != 16 {
+		return "", sql.ErrNoRows
+	}
+	remotePath := string(remotePathBytes)
+	expected := signedFileID(secret, remotePath)
+	expectedParts := strings.Split(expected, ".")
+	expectedSignature, _ := base64.RawURLEncoding.DecodeString(expectedParts[1])
+	if !hmac.Equal(signature, expectedSignature) {
+		return "", sql.ErrNoRows
+	}
+	validated, err := validateDSMPath(remotePath, root)
+	if err != nil {
+		return "", sql.ErrNoRows
+	}
+	return validated, nil
+}
+
+func (a *App) searchDSM(ctx context.Context, o SearchOptions) (SearchResult, error) {
+	result := SearchResult{Items: []File{}, Page: o.Page, Limit: o.Limit}
+	cfg := a.Config()
+	client, err := newDSMClient(cfg)
+	if err != nil {
+		a.setDSMStatus(false, err)
+		return result, err
+	}
+	if err = client.connect(ctx); err != nil {
+		client.http.CloseIdleConnections()
+		a.setDSMStatus(false, err)
+		return result, err
+	}
+	defer func() { client.logout(); client.http.CloseIdleConnections() }()
+	var after, before *time.Time
+	if o.After != "" {
+		value, parseErr := time.Parse(time.RFC3339, o.After)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		after = &value
+	}
+	if o.Before != "" {
+		value, parseErr := time.Parse(time.RFC3339, o.Before)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		before = &value
+	}
+	page, err := client.search(ctx, cfg.RootPath, dsmSearchOptions{
+		Pattern: o.Query, Extension: o.Ext, MinSize: o.MinSize, MaxSize: o.MaxSize,
+		After: after, Before: before, Offset: (o.Page - 1) * o.Limit, Limit: o.Limit,
+		Sort: o.Sort, Order: o.Order,
+	})
+	if err != nil {
+		a.setDSMStatus(false, err)
+		return result, err
+	}
+	result.Total = page.Total
+	for _, entry := range page.Files {
+		rel := strings.TrimPrefix(entry.Path, strings.TrimRight(cfg.RootPath, "/"))
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			continue
+		}
+		ext := strings.TrimPrefix(strings.ToLower(entry.Additional.Type), ".")
+		if ext == "" {
+			ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name)), ".")
+		}
+		file := File{ID: signedFileID(cfg.PasswordHash, entry.Path), Name: entry.Name, Path: rel, Size: entry.Additional.Size, Extension: ext}
+		decorate(&file, entry.Additional.Time.MTime*int64(time.Second), cfg)
+		result.Items = append(result.Items, file)
+	}
+	a.setDSMStatus(true, nil)
+	a.recordDSMSearch()
+	return result, nil
 }
 
 func fileID(root, path string) string {
@@ -81,6 +201,12 @@ func previewType(ext string) string {
 		return "image"
 	case "pdf":
 		return "pdf"
+	case "psd":
+		return "psd"
+	case "ppt", "pptx":
+		return "pptx"
+	case "ai":
+		return "illustrator"
 	case "txt", "md", "csv", "tsv", "log", "json", "yaml", "yml", "xml", "ini", "conf", "go", "py", "js", "ts", "css":
 		return "text"
 	}
@@ -95,101 +221,7 @@ func decorate(f *File, mtime int64, cfg Config) {
 }
 
 func (a *App) Search(o SearchOptions) (SearchResult, error) {
-	return a.search(context.Background(), o)
-}
-
-func (a *App) search(ctx context.Context, o SearchOptions) (SearchResult, error) {
-	result := SearchResult{Items: []File{}, Page: o.Page, Limit: o.Limit}
-	where := []string{"1=1"}
-	args := []any{}
-	terms := strings.Fields(strings.ToLower(o.Query))
-	fts := []string{}
-	for _, term := range terms {
-		where = append(where, "instr(f.path_fold,?)>0")
-		args = append(args, term)
-		if len([]rune(term)) >= 3 {
-			fts = append(fts, `"`+strings.ReplaceAll(term, `"`, `""`)+`"`)
-		}
-	}
-	if len(fts) > 0 {
-		where = append(where, "f.rowid IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)")
-		args = append(args, strings.Join(fts, " AND "))
-	}
-	if o.Ext != "" {
-		parts := strings.Split(strings.ToLower(o.Ext), ",")
-		marks := []string{}
-		for _, p := range parts {
-			p = strings.TrimPrefix(strings.TrimSpace(p), ".")
-			if p != "" {
-				marks = append(marks, "?")
-				args = append(args, p)
-			}
-		}
-		if len(marks) > 0 {
-			where = append(where, "f.extension IN ("+strings.Join(marks, ",")+")")
-		}
-	}
-	if o.MinSize != nil {
-		where = append(where, "f.size>=?")
-		args = append(args, *o.MinSize)
-	}
-	if o.MaxSize != nil {
-		where = append(where, "f.size<=?")
-		args = append(args, *o.MaxSize)
-	}
-	for _, filter := range []struct{ value, op string }{{o.After, ">="}, {o.Before, "<="}} {
-		if filter.value != "" {
-			t, err := time.Parse(time.RFC3339, filter.value)
-			if err != nil {
-				return result, err
-			}
-			where = append(where, "f.mtime"+filter.op+"?")
-			args = append(args, t.UnixNano())
-		}
-	}
-	clause := strings.Join(where, " AND ")
-	// Read count and page from the same SQLite snapshot, even during scan publication.
-	cfg := a.Config()
-	tx, err := a.db.BeginTx(ctx, nil)
-	if err != nil {
-		return result, err
-	}
-	defer tx.Rollback()
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM files f WHERE "+clause, args...).Scan(&result.Total); err != nil {
-		return result, err
-	}
-	col := "f.path_fold"
-	if o.Sort == "modified" {
-		col = "f.mtime"
-	} else if o.Sort == "size" {
-		col = "f.size"
-	}
-	order := "ASC"
-	if o.Order == "desc" {
-		order = "DESC"
-	}
-	query := "SELECT f.id,f.name,f.path,f.size,f.mtime,f.extension FROM files f WHERE " + clause + " ORDER BY " + col + " " + order + ",f.id ASC LIMIT ? OFFSET ?"
-	args = append(args, o.Limit, (o.Page-1)*o.Limit)
-	rows, err := tx.QueryContext(ctx, query, args...)
-	if err != nil {
-		return result, err
-	}
-	for rows.Next() {
-		var f File
-		var m int64
-		if err = rows.Scan(&f.ID, &f.Name, &f.Path, &f.Size, &m, &f.Extension); err != nil {
-			rows.Close()
-			return result, err
-		}
-		decorate(&f, m, cfg)
-		result.Items = append(result.Items, f)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return result, err
-	}
-	return result, tx.Commit()
+	return a.searchDSM(context.Background(), o)
 }
 
 func (a *App) lookup(id string) (File, error) {

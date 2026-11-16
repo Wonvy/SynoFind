@@ -5,7 +5,7 @@ export interface FileItem {
   size: number;
   modified_at: string;
   extension: string;
-  preview_type: '' | 'image' | 'pdf' | 'text';
+  preview_type: '' | 'image' | 'pdf' | 'text' | 'psd' | 'pptx' | 'illustrator';
   smb_path: string;
 }
 
@@ -17,21 +17,18 @@ export interface SearchResult {
 }
 
 export interface IndexStatus {
-  running: boolean;
-  total_files: number;
-  scanned_files: number;
-  started_at: string;
-  last_completed_at: string;
-  last_duration_ms: number;
-  last_error: string;
-  errors: string[];
-  root_path: string;
+	connected: boolean;
+	last_search_at: string;
+	last_error: string;
+	root_path: string;
 }
 
 export interface Settings {
   root_path: string;
   smb_root: string;
-  scan_interval_minutes: number;
+	dsm_url: string;
+	dsm_username: string;
+	has_dsm_password: boolean;
   port: number;
 }
 

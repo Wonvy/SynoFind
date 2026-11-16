@@ -34,10 +34,10 @@ func run() error {
 		return nil
 	case "init":
 		f := flag.NewFlagSet("init", flag.ContinueOnError)
-		data := f.String("data-dir", "", "配置与索引目录")
+		data := f.String("data-dir", "", "私有配置目录")
 		port := f.Int("port", 8787, "端口")
-		root := f.String("root", "/volume1/Wonvy", "资料目录")
-		smb := f.String("smb-root", `\\10.0.0.10\Wonvy`, "Windows共享路径")
+		root := f.String("root", "/Wonvy", "File Station 共享文件夹路径")
+		smb := f.String("smb-root", "", "Windows共享路径（可选）")
 		if err := f.Parse(os.Args[2:]); err != nil {
 			return err
 		}
@@ -48,10 +48,10 @@ func run() error {
 		if err != nil && password == "" {
 			return fmt.Errorf("请通过标准输入提供初始密码")
 		}
-		return app.Init(*data, app.Config{RootPath: *root, SMBRoot: *smb, Port: *port, ScanIntervalMinutes: 15}, strings.TrimRight(password, "\r\n"))
+		return app.Init(*data, app.Config{RootPath: *root, SMBRoot: *smb, Port: *port}, strings.TrimRight(password, "\r\n"))
 	case "serve":
 		f := flag.NewFlagSet("serve", flag.ContinueOnError)
-		data := f.String("data-dir", "", "配置与索引目录")
+		data := f.String("data-dir", "", "私有配置目录")
 		listen := f.String("listen", "", "监听地址（默认配置端口）")
 		if err := f.Parse(os.Args[2:]); err != nil {
 			return err

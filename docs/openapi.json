@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "SynoFind API",
-    "version": "0.1.0",
-    "description": "Personal, read-only NAS file search and retrieval. Bearer tokens can use search/files/index; settings and token administration require a web session and CSRF protection. No DSM credentials are accepted."
+    "version": "0.2.0",
+    "description": "Personal read-only filename search and file retrieval through Synology File Station APIs. DSM credentials are write-only settings and are never returned."
   },
   "servers": [
     {
@@ -227,7 +227,7 @@
     },
     "/search": {
       "get": {
-        "summary": "Search filenames and relative paths",
+        "summary": "Search filenames through the configured DSM File Station API",
         "responses": {
           "200": {
             "description": "Success",
@@ -285,7 +285,7 @@
             "name": "q",
             "in": "query",
             "required": false,
-            "description": "Space-separated case-insensitive literal substrings; every term must match the path.",
+            "description": "Filename pattern accepted by DSM File Station.Search; parent paths and file contents are not searched.",
             "schema": {
               "type": "string"
             }
@@ -538,27 +538,6 @@
                 }
               }
             }
-          },
-          "206": {
-            "description": "Partial file",
-            "headers": {
-              "Content-Range": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "416": {
-            "description": "Requested range is unsatisfiable; standard HTTP response."
           }
         },
         "parameters": [
@@ -570,22 +549,6 @@
               "type": "string"
             },
             "description": "Opaque ID returned by the API."
-          },
-          {
-            "name": "Range",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "HTTP byte range, e.g. bytes=0-1023."
-          },
-          {
-            "name": "If-Range",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Use with Range to verify a cached validator."
           }
         ]
       }
@@ -675,8 +638,8 @@
               }
             }
           },
-          "500": {
-            "description": "Internal error",
+          "413": {
+            "description": "Plain text preview exceeds the 2 MiB limit; download the file instead",
             "content": {
               "application/json": {
                 "schema": {
@@ -695,8 +658,8 @@
               }
             }
           },
-          "413": {
-            "description": "Plain text preview exceeds the 2 MiB limit; download the file instead",
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -721,7 +684,7 @@
     },
     "/index/status": {
       "get": {
-        "summary": "Read index progress and last result",
+        "summary": "Read the latest DSM search connection status",
         "responses": {
           "200": {
             "description": "Success",
@@ -774,92 +737,6 @@
             }
           }
         }
-      }
-    },
-    "/index/scan": {
-      "post": {
-        "summary": "Request an index refresh",
-        "responses": {
-          "202": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "started": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "started"
-                  ]
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid parameters",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Access or CSRF denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Scan in progress or conflicting state",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "X-CSRF-Token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Required for session-cookie mutations. Obtain from login/session; not used with a Bearer token."
-          }
-        ]
       }
     },
     "/settings": {
@@ -924,7 +801,7 @@
         ]
       },
       "put": {
-        "summary": "Update the configured source and scan interval",
+        "summary": "Update the DSM connection and File Station search scope",
         "responses": {
           "200": {
             "description": "Success",
@@ -958,16 +835,6 @@
           },
           "403": {
             "description": "Access or CSRF denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Scan in progress or conflicting state",
             "content": {
               "application/json": {
                 "schema": {
@@ -1420,47 +1287,24 @@
       "IndexStatus": {
         "type": "object",
         "properties": {
-          "running": {
+          "connected": {
             "type": "boolean"
           },
-          "total_files": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "scanned_files": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "started_at": {
+          "last_search_at": {
             "type": "string",
             "description": "UTC RFC3339; empty string if not yet available."
-          },
-          "last_completed_at": {
-            "type": "string",
-            "description": "UTC RFC3339; empty string if not yet available."
-          },
-          "last_duration_ms": {
-            "type": "integer",
-            "format": "int64"
           },
           "last_error": {
             "type": "string"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           },
           "root_path": {
             "type": "string"
           }
         },
         "required": [
-          "running",
-          "total_files",
-          "scanned_files",
-          "errors"
+          "connected",
+          "last_error",
+          "root_path"
         ]
       },
       "Settings": {
@@ -1472,10 +1316,14 @@
           "smb_root": {
             "type": "string"
           },
-          "scan_interval_minutes": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 1440
+          "dsm_url": {
+            "type": "string"
+          },
+          "dsm_username": {
+            "type": "string"
+          },
+          "has_dsm_password": {
+            "type": "boolean"
           },
           "port": {
             "type": "integer",
@@ -1487,7 +1335,9 @@
         "required": [
           "root_path",
           "smb_root",
-          "scan_interval_minutes",
+          "dsm_url",
+          "dsm_username",
+          "has_dsm_password",
           "port"
         ]
       },
@@ -1500,16 +1350,23 @@
           "smb_root": {
             "type": "string"
           },
-          "scan_interval_minutes": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 1440
+          "dsm_url": {
+            "type": "string"
+          },
+          "dsm_username": {
+            "type": "string"
+          },
+          "dsm_password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true
           }
         },
         "required": [
           "root_path",
           "smb_root",
-          "scan_interval_minutes"
+          "dsm_url",
+          "dsm_username"
         ]
       },
       "Token": {

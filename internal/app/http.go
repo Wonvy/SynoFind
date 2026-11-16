@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -61,13 +62,6 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/files/{id}/content", a.protected(false, a.contentHTTP))
 	mux.HandleFunc("GET /api/v1/files/{id}/preview", a.protected(false, a.contentHTTP))
 	mux.HandleFunc("GET /api/v1/index/status", a.protected(false, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.Status()) }))
-	mux.HandleFunc("POST /api/v1/index/scan", a.protected(false, func(w http.ResponseWriter, r *http.Request) {
-		if !a.StartScan() {
-			apiError(w, 409, "scan_running", "索引正在更新，请稍候")
-			return
-		}
-		writeJSON(w, 202, map[string]bool{"started": true})
-	}))
 	mux.HandleFunc("GET /api/v1/settings", a.protected(true, a.settings))
 	mux.HandleFunc("PUT /api/v1/settings", a.protected(true, a.settings))
 	mux.HandleFunc("GET /api/v1/tokens", a.protected(true, a.tokens))
@@ -142,6 +136,10 @@ func (a *App) searchHTTP(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "invalid_query", "搜索条件过长或无效")
 		return
 	}
+	if strings.ContainsAny(o.Query, "/\\\r\n\x00") {
+		apiError(w, 400, "invalid_query", "只搜索文件名，关键词不能包含路径分隔符")
+		return
+	}
 	for key, ptr := range map[string]*int{"page": &o.Page, "limit": &o.Limit} {
 		if q.Has(key) {
 			v, err := strconv.Atoi(q.Get(key))
@@ -186,7 +184,11 @@ func (a *App) searchHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	result, err := a.search(r.Context(), o)
+	if strings.TrimSpace(o.Query) == "" && o.Ext == "" && o.MinSize == nil && o.MaxSize == nil && o.After == "" && o.Before == "" {
+		writeJSON(w, 200, SearchResult{Items: []File{}, Page: o.Page, Limit: o.Limit})
+		return
+	}
+	result, err := a.searchDSM(r.Context(), o)
 	if err != nil {
 		log.Printf("search failed: %v", err)
 		apiError(w, 500, "search_failed", "搜索失败，请重试")
@@ -197,29 +199,93 @@ func (a *App) searchHTTP(w http.ResponseWriter, r *http.Request) {
 
 func fileError(w http.ResponseWriter, err error) {
 	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
-		apiError(w, 404, "file_missing", "文件已不存在，请刷新索引")
+		apiError(w, 404, "file_missing", "文件已不存在，请重新搜索")
 	} else if errors.Is(err, os.ErrPermission) {
 		apiError(w, 403, "file_forbidden", "没有读取权限，或文件路径不在允许范围内")
 	} else {
-		apiError(w, 409, "file_unavailable", "文件暂时无法读取，请检查目录权限或刷新索引")
+		apiError(w, 409, "file_unavailable", "文件暂时无法读取，请检查 DSM 只读账户的目录权限后重试")
 	}
 }
 func (a *App) fileHTTP(w http.ResponseWriter, r *http.Request) {
-	f, handle, err := a.openFile(r.PathValue("id"))
+	cfg := a.Config()
+	remotePath, err := verifyFileID(cfg.PasswordHash, r.PathValue("id"), cfg.RootPath)
 	if err != nil {
+		apiError(w, 404, "file_missing", "文件标识无效或已失效，请重新搜索")
+		return
+	}
+	client, file, err := a.connectAndGetFile(r.Context(), cfg, remotePath)
+	if err != nil {
+		a.setDSMStatus(false, err)
 		fileError(w, err)
 		return
 	}
-	handle.Close()
+	client.logout()
+	client.http.CloseIdleConnections()
+	a.setDSMStatus(true, nil)
+	f := a.presentFile(file, cfg)
 	writeJSON(w, 200, f)
 }
-func (a *App) contentHTTP(w http.ResponseWriter, r *http.Request) {
-	f, handle, err := a.openFile(r.PathValue("id"))
+
+func (a *App) connectAndGetFile(ctx context.Context, cfg Config, remotePath string) (*dsmClient, dsmFile, error) {
+	client, err := newDSMClient(cfg)
 	if err != nil {
+		return nil, dsmFile{}, err
+	}
+	if err = client.connect(ctx); err != nil {
+		client.http.CloseIdleConnections()
+		return nil, dsmFile{}, err
+	}
+	file, err := client.fileInfo(ctx, remotePath, cfg.RootPath)
+	if err != nil {
+		client.logout()
+		client.http.CloseIdleConnections()
+		return nil, dsmFile{}, err
+	}
+	return client, file, nil
+}
+
+func (a *App) presentFile(entry dsmFile, cfg Config) File {
+	root := strings.TrimRight(cfg.RootPath, "/")
+	rel := strings.TrimPrefix(entry.Path, root)
+	rel = strings.TrimPrefix(rel, "/")
+	ext := strings.TrimPrefix(strings.ToLower(entry.Additional.Type), ".")
+	if ext == "" {
+		ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(entry.Name)), ".")
+	}
+	f := File{ID: signedFileID(cfg.PasswordHash, entry.Path), Name: entry.Name, Path: rel, Size: entry.Additional.Size, Extension: ext}
+	decorate(&f, entry.Additional.Time.MTime*int64(time.Second), cfg)
+	return f
+}
+
+func (a *App) contentHTTP(w http.ResponseWriter, r *http.Request) {
+	cfg := a.Config()
+	remotePath, err := verifyFileID(cfg.PasswordHash, r.PathValue("id"), cfg.RootPath)
+	if err != nil {
+		apiError(w, 404, "file_missing", "文件标识无效或已失效，请重新搜索")
+		return
+	}
+	client, err := newDSMClient(cfg)
+	if err != nil {
+		a.setDSMStatus(false, err)
 		fileError(w, err)
 		return
 	}
-	defer handle.Close()
+	if err = client.connect(r.Context()); err != nil {
+		client.http.CloseIdleConnections()
+		a.setDSMStatus(false, err)
+		fileError(w, err)
+		return
+	}
+	defer func() { client.logout(); client.http.CloseIdleConnections() }()
+	entry, stream, err := client.download(r.Context(), remotePath, cfg.RootPath)
+	if err != nil {
+		a.setDSMStatus(false, err)
+		fileError(w, err)
+		return
+	}
+	defer stream.Close()
+	a.setDSMStatus(true, nil)
+	f := a.presentFile(entry, cfg)
 	preview := strings.HasSuffix(r.URL.Path, "/preview")
 	if preview && f.PreviewType == "" {
 		apiError(w, 415, "preview_unsupported", "此格式暂不支持预览，请下载后打开")
@@ -234,6 +300,8 @@ func (a *App) contentHTTP(w http.ResponseWriter, r *http.Request) {
 			contentType = mime.TypeByExtension("." + f.Extension)
 		case "pdf":
 			contentType = "application/pdf"
+		case "pptx":
+			contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 		case "text":
 			contentType = "text/plain; charset=utf-8"
 			if f.Size > 2*1024*1024 {
@@ -244,10 +312,18 @@ func (a *App) contentHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": f.Name}))
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'self'")
-	mtime, _ := time.Parse(time.RFC3339Nano, f.ModifiedAt)
-	w.Header().Set("ETag", fmtETag(f.Size, mtime))
-	http.ServeContent(w, r, f.Name, mtime, handle)
+	if preview {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'self'")
+	}
+	if f.ModifiedAt != "" {
+		mtime, parseErr := time.Parse(time.RFC3339Nano, f.ModifiedAt)
+		if parseErr == nil {
+			w.Header().Set("ETag", fmtETag(f.Size, mtime))
+		}
+	}
+	if _, err = io.Copy(w, stream); err != nil {
+		log.Printf("DSM file stream failed for an authenticated request")
+	}
 }
 func fmtETag(size int64, mtime time.Time) string {
 	return `"` + strconv.FormatInt(size, 16) + "-" + strconv.FormatInt(mtime.UnixNano(), 16) + `"`
@@ -256,87 +332,70 @@ func fmtETag(size int64, mtime time.Time) string {
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		cfg := a.Config()
-		cfg.PasswordHash = ""
-		writeJSON(w, 200, cfg)
+		writeJSON(w, 200, publicSettings(cfg))
 		return
 	}
 	var body struct {
-		RootPath string `json:"root_path"`
-		SMBRoot  string `json:"smb_root"`
-		Interval int    `json:"scan_interval_minutes"`
-		Port     int    `json:"port"`
+		RootPath    string `json:"root_path"`
+		SMBRoot     string `json:"smb_root"`
+		DSMURL      string `json:"dsm_url"`
+		DSMUsername string `json:"dsm_username"`
+		DSMPassword string `json:"dsm_password"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if body.Interval < 1 || body.Interval > 1440 {
-		apiError(w, 400, "invalid_interval", "更新间隔须为1–1440分钟")
-		return
-	}
-	body.RootPath = filepath.Clean(strings.TrimSpace(body.RootPath))
-	if err := validateRoot(body.RootPath, a.dataDir); err != nil {
+	body.RootPath = normalizeFileStationRoot(body.RootPath)
+	if err := validateFileStationRoot(body.RootPath); err != nil {
 		apiError(w, 400, "invalid_root", err.Error())
 		return
 	}
 	if body.SMBRoot != "" && (!strings.HasPrefix(body.SMBRoot, `\\`) || strings.ContainsAny(body.SMBRoot, "\r\n\x00")) {
-		apiError(w, 400, "invalid_smb", "共享路径示例：\\\\10.0.0.10\\Wonvy")
+		apiError(w, 400, "invalid_smb", "共享路径示例：\\\\NAS\\共享文件夹")
 		return
 	}
-	a.mu.Lock()
-	if a.status.Running {
-		a.mu.Unlock()
-		apiError(w, 409, "scan_running", "请等待当前索引更新完成后修改设置")
-		return
-	}
-	old := a.cfg
+	old := a.Config()
 	cfg := old
 	cfg.RootPath = body.RootPath
 	cfg.SMBRoot = body.SMBRoot
-	cfg.ScanIntervalMinutes = body.Interval
-	a.status.Running = true
-	a.mu.Unlock()
-	rescan := false
-	defer func() {
-		a.mu.Lock()
-		a.status.Running = false
-		a.mu.Unlock()
-		if rescan {
-			a.StartScan()
-		}
-	}()
-	tx, err := a.db.Begin()
-	if err != nil {
-		apiError(w, 500, "database", "无法保存设置")
-		return
+	cfg.DSMURL = strings.TrimSpace(body.DSMURL)
+	cfg.DSMUsername = strings.TrimSpace(body.DSMUsername)
+	if body.DSMPassword != "" {
+		cfg.DSMPassword = body.DSMPassword
+	} else if cfg.DSMUsername != old.DSMUsername {
+		cfg.DSMPassword = ""
 	}
-	defer tx.Rollback()
-	if cfg.RootPath != old.RootPath {
-		if _, err = tx.Exec("DELETE FROM files; DELETE FROM scan_files; DELETE FROM meta WHERE key IN ('last_completed_at','index_status')"); err != nil {
-			apiError(w, 500, "database", "无法切换资料目录")
-			return
+	client, err := newDSMClient(cfg)
+	if err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+		err = client.connect(ctx)
+		if err == nil {
+			err = client.checkRoot(ctx, cfg.RootPath)
 		}
+		cancel()
+		client.logout()
+		client.http.CloseIdleConnections()
+	}
+	if err != nil {
+		apiError(w, 400, "dsm_connection", err.Error())
+		return
 	}
 	if err = SaveConfig(a.dataDir, cfg); err != nil {
 		apiError(w, 500, "config_write", "无法保存设置")
 		return
 	}
-	if err = tx.Commit(); err != nil {
-		SaveConfig(a.dataDir, old)
-		apiError(w, 500, "database", "无法保存设置")
-		return
-	}
 	a.mu.Lock()
 	a.cfg = cfg
 	a.status.RootPath = cfg.RootPath
-	if cfg.RootPath != old.RootPath {
-		a.status.TotalFiles = 0
-		a.status.ScannedFiles = 0
-		a.status.LastCompletedAt = ""
-		a.status.LastError = ""
-		a.status.Errors = []string{}
-	}
+	a.status.Connected = true
+	a.status.LastError = ""
 	a.mu.Unlock()
-	rescan = cfg.RootPath != old.RootPath
-	cfg.PasswordHash = ""
-	writeJSON(w, 200, cfg)
+	writeJSON(w, 200, publicSettings(cfg))
+}
+
+func publicSettings(cfg Config) map[string]any {
+	return map[string]any{
+		"root_path": cfg.RootPath, "smb_root": cfg.SMBRoot, "dsm_url": cfg.DSMURL,
+		"dsm_username": cfg.DSMUsername, "has_dsm_password": cfg.DSMPassword != "", "port": cfg.Port,
+	}
 }

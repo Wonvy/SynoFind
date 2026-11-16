@@ -13,7 +13,10 @@ import (
 type Config struct {
 	RootPath            string `json:"root_path"`
 	SMBRoot             string `json:"smb_root"`
-	ScanIntervalMinutes int    `json:"scan_interval_minutes"`
+	DSMURL              string `json:"dsm_url"`
+	DSMUsername         string `json:"dsm_username"`
+	DSMPassword         string `json:"dsm_password,omitempty"`
+	ScanIntervalMinutes int    `json:"-"`
 	Port                int    `json:"port"`
 	PasswordHash        string `json:"password_hash,omitempty"`
 }
@@ -30,14 +33,15 @@ func Init(dataDir string, cfg Config, password string) error {
 	if cfg.Port < 1024 || cfg.Port > 65535 {
 		return errors.New("端口必须在1024–65535之间")
 	}
-	if !filepath.IsAbs(cfg.RootPath) {
-		return errors.New("资料目录必须是绝对路径")
+	if cfg.RootPath == "" {
+		cfg.RootPath = "/Wonvy"
 	}
-	if cfg.ScanIntervalMinutes == 0 {
-		cfg.ScanIntervalMinutes = 15
+	cfg.RootPath = normalizeFileStationRoot(cfg.RootPath)
+	if err := validateFileStationRoot(cfg.RootPath); err != nil {
+		return err
 	}
-	if cfg.ScanIntervalMinutes < 1 || cfg.ScanIntervalMinutes > 1440 {
-		return errors.New("更新间隔须为1–1440分钟")
+	if cfg.DSMURL == "" {
+		cfg.DSMURL = "http://127.0.0.1:5000"
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -62,13 +66,64 @@ func LoadConfig(dataDir string) (Config, error) {
 	if err = json.Unmarshal(b, &cfg); err != nil {
 		return cfg, err
 	}
-	if cfg.Port < 1024 || cfg.Port > 65535 || cfg.ScanIntervalMinutes < 1 || cfg.ScanIntervalMinutes > 1440 || cfg.PasswordHash == "" {
+	if cfg.Port < 1024 || cfg.Port > 65535 || cfg.PasswordHash == "" {
 		return cfg, errors.New("配置无效")
 	}
-	if !filepath.IsAbs(cfg.RootPath) {
-		return cfg, errors.New("资料目录必须为绝对路径")
+	// Older suite versions stored the NAS filesystem path. File Station uses
+	// shared-folder paths, so migrate /volumeN/share/... to /share/....
+	cfg.RootPath = normalizeFileStationRoot(cfg.RootPath)
+	if err = validateFileStationRoot(cfg.RootPath); err != nil {
+		return cfg, err
+	}
+	if cfg.DSMURL == "" {
+		cfg.DSMURL = "http://127.0.0.1:5000"
+	}
+	// The old installer used this example UNC path as its default. Clear it so
+	// new DSM API results do not expose a path that points at another NAS.
+	if strings.EqualFold(strings.TrimSpace(cfg.SMBRoot), `\\10.0.0.10\Wonvy`) {
+		cfg.SMBRoot = ""
 	}
 	return cfg, nil
+}
+
+func normalizeFileStationRoot(root string) string {
+	root = strings.TrimSpace(strings.ReplaceAll(root, `\`, "/"))
+	if strings.HasPrefix(root, "/volume") {
+		parts := strings.Split(strings.TrimPrefix(root, "/"), "/")
+		if len(parts) >= 2 && len(parts[0]) > len("volume") && strings.HasPrefix(parts[0], "volume") {
+			volume := strings.TrimPrefix(parts[0], "volume")
+			if volume != "" {
+				allDigits := true
+				for _, char := range volume {
+					if char < '0' || char > '9' {
+						allDigits = false
+						break
+					}
+				}
+				if allDigits {
+					return "/" + strings.Join(parts[1:], "/")
+				}
+			}
+		}
+	}
+	return root
+}
+
+func validateFileStationRoot(root string) error {
+	if !strings.HasPrefix(root, "/") || root == "/" || strings.Contains(root, `\`) || strings.Contains(root, "//") {
+		return errors.New("资料目录须使用 File Station 路径，例如 /共享文件夹")
+	}
+	for _, part := range strings.Split(strings.TrimPrefix(root, "/"), "/") {
+		if part == "" || part == "." || part == ".." {
+			return errors.New("File Station 路径不能包含空目录或相对路径")
+		}
+		for _, char := range part {
+			if char < 0x20 || char == 0x7f {
+				return errors.New("File Station 路径不能包含控制字符")
+			}
+		}
+	}
+	return nil
 }
 
 func SaveConfig(dataDir string, cfg Config) error {

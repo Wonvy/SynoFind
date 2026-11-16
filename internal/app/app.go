@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"sync"
@@ -24,15 +23,17 @@ type App struct {
 	attempts map[string]*attempt
 }
 type IndexStatus struct {
-	Running         bool     `json:"running"`
-	TotalFiles      int      `json:"total_files"`
-	ScannedFiles    int      `json:"scanned_files"`
-	StartedAt       string   `json:"started_at"`
-	LastCompletedAt string   `json:"last_completed_at"`
-	LastDurationMS  int64    `json:"last_duration_ms"`
+	Connected       bool     `json:"connected"`
+	LastSearchAt    string   `json:"last_search_at"`
 	LastError       string   `json:"last_error"`
-	Errors          []string `json:"errors"`
 	RootPath        string   `json:"root_path"`
+	Running         bool     `json:"-"`
+	TotalFiles      int      `json:"-"`
+	ScannedFiles    int      `json:"-"`
+	StartedAt       string   `json:"-"`
+	LastCompletedAt string   `json:"-"`
+	LastDurationMS  int64    `json:"-"`
+	Errors          []string `json:"-"`
 }
 
 func New(dataDir string, assets fs.FS) (*App, error) {
@@ -49,18 +50,7 @@ func New(dataDir string, assets fs.FS) (*App, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &App{db: db, dataDir: dataDir, cfg: cfg, ctx: ctx, cancel: cancel, assets: assets, attempts: map[string]*attempt{}}
-	a.status.Errors = []string{}
 	a.status.RootPath = cfg.RootPath
-	var saved string
-	if db.QueryRow("SELECT value FROM meta WHERE key='index_status'").Scan(&saved) == nil {
-		var state IndexStatus
-		if json.Unmarshal([]byte(saved), &state) == nil && state.RootPath == cfg.RootPath {
-			a.status = state
-			a.status.Running = false
-		}
-	}
-	db.QueryRow("SELECT count(*) FROM files").Scan(&a.status.TotalFiles)
-	db.QueryRow("SELECT value FROM meta WHERE key='last_completed_at'").Scan(&a.status.LastCompletedAt)
 	return a, nil
 }
 func (a *App) Config() Config { a.mu.RLock(); defer a.mu.RUnlock(); return a.cfg }
@@ -72,26 +62,36 @@ func (a *App) Status() IndexStatus {
 	return s
 }
 func (a *App) Start() {
-	a.StartScan()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		ticker := time.NewTicker(time.Second * 30)
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		last := time.Now()
 		for {
 			select {
 			case <-a.ctx.Done():
 				return
 			case <-ticker.C:
-				if time.Since(last) >= time.Duration(a.Config().ScanIntervalMinutes)*time.Minute {
-					if a.StartScan() {
-						last = time.Now()
-					}
-				}
 				a.db.ExecContext(a.ctx, "DELETE FROM sessions WHERE expires<?", time.Now().Unix())
 			}
 		}
 	}()
+}
+
+func (a *App) setDSMStatus(connected bool, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.status.Connected = connected
+	if err != nil {
+		a.status.LastError = err.Error()
+		return
+	}
+	a.status.LastError = ""
+}
+
+func (a *App) recordDSMSearch() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.status.LastSearchAt = time.Now().UTC().Format(time.RFC3339)
 }
 func (a *App) Close() error { a.mu.Lock(); a.cancel(); a.mu.Unlock(); a.wg.Wait(); return a.db.Close() }

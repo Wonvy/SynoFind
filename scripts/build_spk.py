@@ -132,6 +132,8 @@ def validate_spk(path: Path) -> dict:
     info = dict(re.findall(r'^([a-z_]+)="(.*)"$', files["INFO"][0].decode(), re.M))
     if info.get("package") != "synofind" or info.get("arch") != "apollolake" or info.get("os_min_ver") != "7.1-42962":
         raise ValueError("Incorrect DSM package identity or target.")
+    if info.get("silent_upgrade") != "no":
+        raise ValueError("Package upgrades must use the dedicated upgrade wizard.")
     if hashlib.md5(files["package.tgz"][0]).hexdigest() != info.get("checksum"):
         raise ValueError("Payload checksum does not match INFO.")
     privilege = json.loads(files["conf/privilege"][0])
@@ -148,6 +150,10 @@ def validate_spk(path: Path) -> dict:
     subitems = [entry for page in wizard for item in page["items"] for entry in item.get("subitems", [])]
     if not {"wizard_password", "wizard_port"} <= {i["key"] for i in subitems}:
         raise ValueError("Initial setup wizard must collect password and port.")
+    upgrade_wizard = json.loads(files["WIZARD_UIFILES/upgrade_uifile"][0])
+    upgrade_keys = [entry["key"] for page in upgrade_wizard for item in page["items"] for entry in item.get("subitems", []) if "key" in entry]
+    if "wizard_password" in upgrade_keys:
+        raise ValueError("Upgrade wizard must not request a new SynoFind password.")
     payload = read_members(files["package.tgz"][0], "r:gz")
     if "THIRD_PARTY_NOTICES.txt" not in payload or not payload["THIRD_PARTY_NOTICES.txt"][0].startswith(b"SynoFind - Third-Party Software Notices"):
         raise ValueError("Missing third-party redistribution notices.")

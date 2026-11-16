@@ -1,6 +1,6 @@
 {
   "name": "synofind-web",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,10 +11,14 @@
     "predev": "node scripts/copy-pdf-assets.mjs"
   },
   "dependencies": {
+    "@web-ppt/core": "0.8.0",
+    "@web-ppt/viewer-core": "0.8.0",
+    "ag-psd": "34.2.1",
     "lucide-react": "^0.468.0",
     "pdfjs-dist": "5.7.284",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-file-icon": "^1.6.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

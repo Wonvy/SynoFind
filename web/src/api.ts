@@ -54,6 +54,13 @@ export async function previewText(id: string, signal: AbortSignal): Promise<stri
   return response.text();
 }
 
+export async function previewBytes(id: string, signal: AbortSignal): Promise<ArrayBuffer> {
+  const response = await checkedResponse(`/files/${encodeURIComponent(id)}/preview`, { signal });
+  const blob = await response.blob();
+  if (blob.size > 128 * 1024 * 1024) throw new Error('文件超过 128 MB，浏览器预览可能占用过多内存，请下载后查看。');
+  return blob.arrayBuffer();
+}
+
 export function fileURL(id: string, preview = false) {
   return `${API_BASE}/files/${encodeURIComponent(id)}/${preview ? 'preview' : 'content'}`;
 }
