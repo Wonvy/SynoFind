@@ -2,10 +2,10 @@
   "packages": [
     {
       "package": "synofind",
-      "version": "0.2.0-0002",
+      "version": "0.2.1-0001",
       "dname": "SynoFind",
       "desc": "群晖 File Station 文件名搜索、预览与下载。",
-      "link": "https://wonvy.github.io/SynoFind/SynoFind-apollolake-0.2.0.spk",
+      "link": "https://wonvy.github.io/SynoFind/SynoFind-apollolake-0.2.1.spk",
       "thumbnail": [
         "https://wonvy.github.io/SynoFind/icon_64.png"
       ],
@@ -23,8 +23,8 @@
       "distributor_url": "https://github.com/Wonvy/SynoFind",
       "maintainer": "Wonvy",
       "maintainer_url": "https://github.com/Wonvy/SynoFind",
-      "md5": "e8a52eb8e23b66a22be09fe0dde969e9",
-      "size": 7432192,
+      "md5": "d65658d5ae36077182f889950f4b7bf9",
+      "size": 7618560,
       "startable": "yes"
     }
   ]
